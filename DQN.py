@@ -4,6 +4,11 @@ from collections import deque
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import os
+from tqdm import tqdm
+import gymnasium as gym
+from time import time
+from matplotlib import pyplot as plt
 
 class DQNnetwork(nn.Module):
     def __init__(self, state_size, action_size, hidden_layer_sizes):
@@ -95,3 +100,61 @@ class DQNAgent:
             self.epsilon *= self.decay_epsilon
 
         self.Q_target.load_state_dict(self.Q.state_dict())
+
+    def train(self, env, agent, num_episodes):
+        rewards = []
+        durations=[]
+        for episode in tqdm(range(num_episodes)):
+            t0 = time()
+            seed = np.random.randint(0, 100000)
+            state = env.reset(seed=seed)[0]
+            done = False
+            total_reward = 0
+
+            while not done:
+                action = agent.select_action(state)
+                next_state, reward, done, truncated, _ = env.step(action)
+                agent.observe(state, action, next_state, reward, done)
+                agent.update()
+                total_reward += reward
+                state = next_state
+
+            rewards.append(total_reward)
+            durations.append(time() - t0)
+
+        self.rewards = rewards
+        self.durations = durations
+        return rewards, durations
+
+    def save_agent(self,path):
+        current_directory = os.getcwd()
+        path = current_directory + "/agents_saved/" + path + "/"
+        if os.path.exists(path) == False:
+            os.makedirs(path)
+            print("Directory created: ", path)
+        
+        torch.save(self.Q.state_dict(), path + "Q_values.pt")
+        np.save(path + "rewards.npy", self.rewards)
+        np.save(path + "durations.npy", self.durations)
+        print("Agent saved on path: ", path)
+
+
+    # def load_agent(self,path):
+        
+    #     path = current_directory + "agents_saved/" 
+    #     print(path)
+    #     self.Q.load_state_dict(torch.load(path + "Q_values.pt"))
+    #     self.rewards = np.load(path + "rewards.npy")
+    #     self.durations = np.load(path + "durations.npy")
+
+    def plots(self):
+        # plot both the rewards and the durations in two subplots
+        fig, axs = plt.subplots(2)
+        fig.suptitle('Training Results')
+        axs[0].plot(self.rewards, color='purple')
+        axs[0].set_title('Rewards')
+        axs[1].plot(self.durations)
+        axs[1].set_title('Durations')
+        # create more space between the two plots
+        plt.subplots_adjust(hspace=0.5)
+        plt.show()
