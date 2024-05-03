@@ -58,6 +58,8 @@ class DQNAgent:
     
         self.replay_buffer = deque(maxlen=replay_buffer_max)
 
+        self.loss_history = []
+
     def observe(self, state, action, next_state, reward, done):
         self.replay_buffer.append((state, action, reward, next_state, done))
 
@@ -95,37 +97,46 @@ class DQNAgent:
         loss.backward()
         self.optimizer.step()
 
-        # Decay epsilon
         if self.epsilon > self.min_epsilon:
             self.epsilon *= self.decay_epsilon
 
         self.Q_target.load_state_dict(self.Q.state_dict())
+        self.loss_history.append(loss.item())
 
-    def train(self, env, agent, num_episodes):
+    def train(self, env, agent, num_episodes, reward_function = "-1"):
         rewards = []
         durations=[]
-        for episode in tqdm(range(num_episodes)):
+        dones = []
+        aux_rewards = []
+        for _ in tqdm(range(num_episodes)):
             t0 = time()
             seed = np.random.randint(0, 100000)
             state = env.reset(seed=seed)[0]
-            done = False
-            total_reward = 0
+            done, truncated = False, False
+            total_reward, total_aux_reward = 0, 0
 
-            while not done:
+            while not (done | truncated):
                 action = agent.select_action(state)
-                next_state, reward, done, truncated, _ = env.step(action)
-                agent.observe(state, action, next_state, reward, done)
+                next_state, reward, done, truncated, _, aux_reward = env.step(action, reward_function = reward_function)
+                if reward_function != "-1":
+                    agent.observe(state, action, next_state, aux_reward, done)
+                else:   
+                    agent.observe(state, action, next_state, reward, done)
                 agent.update()
                 total_reward += reward
+                total_aux_reward += aux_reward
                 state = next_state
 
+            aux_rewards.append(total_aux_reward)
             rewards.append(total_reward)
             durations.append(time() - t0)
+            dones.append(done)
 
         self.rewards = rewards
         self.durations = durations
-        return rewards, durations
-
+        self.dones = dones
+        self.aux_rewards = aux_rewards
+        
     def save_agent(self,path):
         current_directory = os.getcwd()
         path = current_directory + "/agents_saved/" + path + "/"
@@ -139,22 +150,46 @@ class DQNAgent:
         print("Agent saved on path: ", path)
 
 
-    # def load_agent(self,path):
-        
-    #     path = current_directory + "agents_saved/" 
-    #     print(path)
-    #     self.Q.load_state_dict(torch.load(path + "Q_values.pt"))
-    #     self.rewards = np.load(path + "rewards.npy")
-    #     self.durations = np.load(path + "durations.npy")
+    def load_agent(self,path):
+        current_directory = os.getcwd()
+        path = current_directory + "/agents_saved/" + path + "/"
+        self.Q.load_state_dict(torch.load(path + "Q_values.pt"))
+        self.rewards = np.load(path + "rewards.npy")
+        self.durations = np.load(path + "durations.npy")
+        print("Agent loaded from path: ", path)
 
     def plots(self):
-        # plot both the rewards and the durations in two subplots
-        fig, axs = plt.subplots(2)
-        fig.suptitle('Training Results')
-        axs[0].plot(self.rewards, color='purple')
-        axs[0].set_title('Rewards')
-        axs[1].plot(self.durations)
-        axs[1].set_title('Durations')
-        # create more space between the two plots
-        plt.subplots_adjust(hspace=0.5)
+        fig, axs = plt.subplots(3, 2, figsize=(10, 8))
+        fig.suptitle('Training Results for DQN', fontsize=16)
+
+        axs[0, 0].plot(self.rewards, color='purple')
+        axs[0, 0].set_title('Rewards')
+        axs[0, 0].set_ylabel('Reward')
+        axs[0, 0].set_xlabel('Episode')
+
+        axs[1, 0].plot(self.aux_rewards, color='purple')
+        axs[1, 0].set_title('Auxiliary Rewards')
+        axs[1, 0].set_ylabel('Auxiliary Reward')
+        axs[1, 0].set_xlabel('Episode')
+
+        axs[2, 0].plot(self.durations)
+        axs[2, 0].set_title('Durations')
+        axs[2, 0].set_ylabel('Duration (seconds)')
+        axs[2, 0].set_xlabel('Episode')
+
+        axs[0, 1].plot(self.dones)
+        axs[0, 1].set_title('Dones')
+        axs[0, 1].set_ylabel('Done')
+        axs[0, 1].set_xlabel('Episode')
+
+        axs[1, 1].plot(self.loss_history)
+        axs[1, 1].set_title('Loss')
+        axs[1, 1].set_ylabel('Loss')
+        axs[1, 1].set_xlabel('Training Step')
+
+        # Hide empty subplot
+        axs[2, 1].axis('off')
+
+        plt.subplots_adjust(hspace=0.4, wspace=0.3)
         plt.show()
+
