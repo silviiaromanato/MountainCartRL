@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import random
 from collections import deque
 import torch
@@ -60,9 +61,10 @@ class DQNAgent:
         self.loss_history = []
 
         self.rewards_history = []
-        self.aux_rewards_history = []
         self.durations_history = []
         self.dones_history = []
+        self.original_rewards_history = []
+        self.auxiliary_rewards_history = []
 
         # Hyperparameters
         self.batch_size = batch_size
@@ -96,10 +98,11 @@ class DQNAgent:
 
 
     def observe(self, state, action, next_state, reward, done, rnd = False):
-
         if rnd == True:
+            self.original_rewards_step += reward
             intrinsic_reward = self.update_rnd(state)
-            reward += intrinsic_reward
+            reward += intrinsic_reward * self.reward_factor
+            self.auxiliary_rewards_step += intrinsic_reward * self.reward_factor
         self.replay_buffer.append((state, action, reward, next_state, done))
         self.step_count += 1
         self.update()
@@ -139,7 +142,7 @@ class DQNAgent:
         if self.update_count % self.target_update_frequency == 0:
             self.Q_target.load_state_dict(self.Q.state_dict())
     
-        self.ep_loss += loss.item()
+        self.loss_history.append(loss.item())
         if self.epsilon > self.min_epsilon:
             self.epsilon *= self.decay_epsilon
 
@@ -163,7 +166,7 @@ class DQNAgent:
             reward_diff = reward_diff.detach().numpy()
             normalized_reward_diff = (reward_diff - self.reward_mean) / self.reward_std
             normalized_reward_diff = np.clip(normalized_reward_diff, -5, 5)
-            return normalized_reward_diff.item() * self.reward_factor
+            return normalized_reward_diff.item()
         else:
             return 0
 
@@ -173,34 +176,37 @@ class DQNAgent:
             seed = np.random.randint(0, 100000)
             state = env.reset(seed=seed)[0]
             done, truncated = False, False
-            ep_reward, total_aux_reward = 0, 0
-            self.ep_loss = 0
+            ep_reward= 0
+            self.original_rewards_step = 0
+            self.auxiliary_rewards_step = 0
 
             while not (done | truncated):
                 action = agent.select_action(state)
                 
                 if reward_function != "-1":
-                    next_state, reward, done, truncated, _, aux_reward = env.step(action, reward_function = reward_function)
-                    agent.observe(state, action, next_state, aux_reward, done)
-                    total_aux_reward += aux_reward
-                else:   
+                    next_state, reward, done, truncated, _ = env.step(action, reward_function = reward_function)
+                    original_reward, auxiliary_reward, _ = env.get_decomposed_rewards()
+                    self.auxiliary_rewards_step += auxiliary_reward
+                    self.original_rewards_step += original_reward
+                else:
                     next_state, reward, done, truncated, _ = env.step(action)
-                    agent.observe(state, action, next_state, reward, done, rnd = rnd)
+                
+                agent.observe(state, action, next_state, reward, done, rnd = rnd)
 
                 ep_reward += reward
-                state = next_state
 
                 if rnd:
                     self.state_mean = 0.9 * self.state_mean + 0.1 * np.mean(next_state)
                     self.state_std = 0.9 * self.state_std + 0.1 * np.std(next_state)
 
-            if reward_function != "-1":
-                self.aux_rewards_history.append(total_aux_reward)
+                state = next_state
+
+            self.original_rewards_history.append(self.original_rewards_step)
+            self.auxiliary_rewards_history.append(self.auxiliary_rewards_step)
             self.rewards_history.append(ep_reward)
             self.durations_history.append(time() - t0)
             self.dones_history.append(done)
-            self.loss_history.append(self.ep_loss)
-        
+            
     def save_agent(self,path):
         current_directory = os.getcwd()
         path = current_directory + "/agents_saved/" + path + "/"
@@ -212,9 +218,7 @@ class DQNAgent:
         np.save(path + "rewards.npy", self.rewards_history)
         np.save(path + "durations.npy", self.durations_history)
         np.save(path + "dones.npy", self.dones_history)
-        np.save(path + "aux_rewards.npy", self.aux_rewards_history)
         print("Agent saved on path: ", path)
-
 
     def load_agent(self,path):
         current_directory = os.getcwd()
@@ -223,75 +227,120 @@ class DQNAgent:
         self.rewards_history = np.load(path + "rewards.npy").tolist()
         self.durations_history = np.load(path + "durations.npy").tolist()
         self.dones_history = np.load(path + "dones.npy").tolist()
-        self.aux_rewards_history = np.load(path + "aux_rewards.npy").tolist()
         print("Agent loaded from path: ", path)
 
     def plots(self, reward_function = "-1"):
 
         y = np.linspace(0, len(self.rewards_history), len(self.rewards_history))
-        if reward_function != "-1":
-            fig, axs = plt.subplots(3, 2, figsize=(10, 8))
-            fig.suptitle('Training Results for DQN', fontsize=16)
 
-            axs[0, 0].plot(self.rewards_history, color='purple')
-            axs[0, 0].set_title('Rewards')
-            axs[0, 0].set_ylabel('Reward')
-            axs[0, 0].set_xlabel('Episode')
+        fig, axs = plt.subplots(3, 2, figsize=(10, 8))
+        fig.suptitle(f'Training Results for DQN with {reward_function}', fontsize=16)
+        rewards_smoothed = pd.Series(self.rewards_history).rolling(window=10, min_periods=1).mean()
 
-            axs[1, 0].plot(self.aux_rewards_history, color='purple')
-            axs[1, 0].set_title('Auxiliary Rewards')
-            axs[1, 0].set_ylabel('Auxiliary Reward')
-            axs[1, 0].set_xlabel('Episode')
+        axs[0, 0].plot(rewards_smoothed, color='purple', linewidth=0.5)
+        axs[0, 0].set_title('Rewards')
+        axs[0, 0].set_ylabel('Reward')
+        axs[0, 0].set_xlabel('Episode')
 
-            axs[2, 0].scatter(y, self.durations_history, s = 3)
-            axs[2, 0].set_title('Durations')
-            axs[2, 0].set_ylabel('Duration (seconds)')
-            axs[2, 0].set_xlabel('Episode')
+        axs[1, 0].plot(np.cumsum(self.rewards_history), color='purple', linewidth=0.5)
+        axs[1, 0].set_title('Cumulative Reward')
+        axs[1, 0].set_ylabel('Cumulative Reward')
+        axs[1, 0].set_xlabel('Episode')
 
-            axs[0, 1].scatter(y, self.dones_history, s = 3)
-            axs[0, 1].set_title('Dones')
-            axs[0, 1].set_ylabel('Done')
-            axs[0, 1].set_xlabel('Episode')
+        axs[2, 0].scatter(y, self.durations_history, s = 3)
+        axs[2, 0].set_title('Durations')
+        axs[2, 0].set_ylabel('Duration (seconds)')
+        axs[2, 0].set_xlabel('Episode')
 
-            axs[1, 1].plot(self.loss_history)
-            axs[1, 1].set_title('Loss')
-            axs[1, 1].set_ylabel('Loss')
-            axs[1, 1].set_xlabel('Episode')
+        axs[0, 1].scatter(y, self.dones_history, s = 3)
+        axs[0, 1].set_title('Dones')
+        axs[0, 1].set_ylabel('Done')
+        axs[0, 1].set_xlabel('Episode')
 
-            # Hide empty subplot
-            axs[2, 1].axis('off')
+        axs[1, 1].plot(self.loss_history)
+        axs[1, 1].set_title('Loss')
+        axs[1, 1].set_ylabel('Loss')
+        axs[1, 1].set_xlabel('Episode')
 
-            plt.subplots_adjust(hspace=0.4, wspace=0.3)
-            plt.show()
+        #remove the 1,2 plot
+        fig.delaxes(axs[2,1])
 
-        else:
+        plt.subplots_adjust(hspace=0.4, wspace=0.3)
+        plt.show()
 
-            fig, axs = plt.subplots(3, 2, figsize=(10, 8))
-            fig.suptitle('Training Results for DQN', fontsize=16)
+    def dones_plots(self, reward_function = "-1"):
 
-            axs[0, 0].plot(self.rewards_history, color='purple')
-            axs[0, 0].set_title('Rewards')
-            axs[0, 0].set_ylabel('Reward')
-            axs[0, 0].set_xlabel('Episode')
+        y = np.linspace(0, len(self.rewards_history), len(self.rewards_history))
 
-            axs[2, 0].scatter(y, self.durations_history, s = 3)
-            axs[2, 0].set_title('Durations')
-            axs[2, 0].set_ylabel('Duration (seconds)')
-            axs[2, 0].set_xlabel('Episode')
+        fig, axs = plt.subplots(2, 2, figsize=(10, 8))
+        fig.suptitle(f'Training Results for DQN with {reward_function}', fontsize=16)
+        rewards_smoothed = pd.Series(self.rewards_history).rolling(window=10, min_periods=1).mean()
 
-            axs[0, 1].scatter(y, self.dones_history, s = 3)
-            axs[0, 1].set_title('Dones')
-            axs[0, 1].set_ylabel('Done')
-            axs[0, 1].set_xlabel('Episode')
+        axs[0, 0].scatter(y, self.dones_history, s = 3, color='green')
+        axs[0, 0].set_title('Successes')
+        axs[0, 0].set_ylabel('Number of Successes')
+        axs[0, 0].set_xlabel('Episode')
 
-            axs[1, 1].plot(self.loss_history)
-            axs[1, 1].set_title('Loss')
-            axs[1, 1].set_ylabel('Loss')
-            axs[1, 1].set_xlabel('Episode')
+        axs[1, 0].plot(np.cumsum(self.dones_history), color='green', linewidth=2)
+        axs[1, 0].set_title('Cumulative Successes up to episode n')
+        axs[1, 0].set_ylabel('Cumulative Successes')
+        axs[1, 0].set_xlabel('Episode')
 
-            # Hide empty subplot
-            axs[2, 1].axis('off')
+        axs[0, 1].scatter(y, self.durations_history, s = 3)
+        axs[0, 1].set_title('Durations')
+        axs[0, 1].set_ylabel('Duration (seconds)')
+        axs[0, 1].set_xlabel('Episode')
 
-            plt.subplots_adjust(hspace=0.4, wspace=0.3)
-            plt.show()
+        axs[1, 1].plot(self.loss_history)
+        axs[1, 1].set_title('Loss')
+        axs[1, 1].set_ylabel('Loss')
+        axs[1, 1].set_xlabel('Episode')
+
+        plt.subplots_adjust(hspace=0.4, wspace=0.3)
+        plt.show()
+
+    def reward_plot(self, reward_function = "-1"):
+        
+        y = np.linspace(0, len(self.rewards_history), len(self.rewards_history))
+
+        fig, axs = plt.subplots(2, 3, figsize=(15, 8))
+        fig.suptitle(f'Training Results for DQN with {reward_function}', fontsize=16)
+        rewards_smoothed = pd.Series(self.rewards_history).rolling(window=20, min_periods=1).mean()
+
+        axs[0, 0].plot(rewards_smoothed, color='purple', linewidth=0.5)
+        axs[0, 0].set_title('Total Rewards')
+        axs[0, 0].set_ylabel('Total Reward')
+        axs[0, 0].set_xlabel('Episode')
+
+        axs[1, 0].plot(np.cumsum(self.rewards_history), color='purple', linewidth=0.5)
+        axs[1, 0].set_title('Cumulative Total Reward')
+        axs[1, 0].set_ylabel('Cumulative Total Reward')
+        axs[1, 0].set_xlabel('Episode')
+
+        original_rewards_smoothed = pd.Series(self.original_rewards_history).rolling(window=20, min_periods=1).mean()
+
+        axs[0, 1].plot(original_rewards_smoothed, color='purple', linewidth=0.5)
+        axs[0, 1].set_title('Original Reward')
+        axs[0, 1].set_ylabel('Original Rewards')
+        axs[0, 1].set_xlabel('Episode')
+
+        axs[1, 1].plot(np.cumsum(self.original_rewards_history), color='purple', linewidth=0.5)
+        axs[1, 1].set_title('Cumulative Original Reward')
+        axs[1, 1].set_ylabel('Cumulative Original Reward')
+        axs[1, 1].set_xlabel('Episode')
+
+        auxiliary_rewards_smoothed = pd.Series(self.auxiliary_rewards_history).rolling(window=20, min_periods=1).mean()
+
+        axs[0, 2].plot(auxiliary_rewards_smoothed, color='purple', linewidth=0.5)
+        axs[0, 2].set_title('Auxiliary Reward')
+        axs[0, 2].set_ylabel('Auxiliary Rewards')
+        axs[0, 2].set_xlabel('Episode')
+
+        axs[1, 2].plot(np.cumsum(self.auxiliary_rewards_history), color='purple', linewidth=0.5)
+        axs[1, 2].set_title('Cumulative Auxiliary Reward')
+        axs[1, 2].set_ylabel('Cumulative Auxiliary Reward')
+        axs[1, 2].set_xlabel('Episode')
+
+        plt.subplots_adjust(hspace=0.4, wspace=0.3)
+        plt.show()
 
