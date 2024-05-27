@@ -44,9 +44,12 @@ class DQNAgent:
                  gamma = 0.99, min_epsilon = 0.05, max_epsilon = 0.9, 
                  decay_epsilon = 0.995, replay_buffer_max = 10000, batch_size = 64, 
                  learning_rate=0.001, hidden_layer_sizes = [64, 64],
-                 target_update_frequency = 500, reward_factor = 0.1):
+                 target_update_frequency = 500, reward_factor = 0.1,
+                 rnd = False, reward_function = "-1"):
         
-        self.env = env
+        self.rnd = rnd
+        self.reward_function = reward_function
+        self.env= env
         self.state_size = state_size
         self.action_size = action_size
 
@@ -98,8 +101,8 @@ class DQNAgent:
         self.replay_buffer = deque(maxlen=replay_buffer_max)
 
 
-    def observe(self, state, action, next_state, reward, done, rnd = False):
-        if rnd == True:
+    def observe(self, state, action, next_state, reward, done):
+        if self.rnd == True:
             self.original_rewards_step += reward
             intrinsic_reward = self.update_rnd(state)
             reward += intrinsic_reward * self.reward_factor
@@ -174,7 +177,8 @@ class DQNAgent:
         else:
             return 0
 
-    def train(self, env, agent, num_episodes, reward_function = "-1", rnd = False, seed_list = None):
+    def train(self, env, agent, num_episodes, seed_list = None, min_epsilon = 0.05, max_epsilon = 0.9):
+
         for ep in tqdm(range(num_episodes)):
             t0 = time()
             if seed_list == None:
@@ -190,19 +194,19 @@ class DQNAgent:
             while not (done | truncated):
                 action = agent.select_action(state)
                 
-                if reward_function != "-1":
-                    next_state, reward, done, truncated, _ = env.step(action, reward_function = reward_function)
+                if self.reward_function != "-1":
+                    next_state, reward, done, truncated, _ = env.step(action, reward_function = self.reward_function)
                     original_reward, auxiliary_reward, _ = env.get_decomposed_rewards()
                     self.auxiliary_rewards_step += auxiliary_reward
                     self.original_rewards_step += original_reward
                 else:
                     next_state, reward, done, truncated, _ = env.step(action)
                 
-                agent.observe(state, action, next_state, reward, done, rnd = rnd)
+                agent.observe(state, action, next_state, reward, done, rnd = self.rnd)
 
                 ep_reward += reward
 
-                if rnd:
+                if self.rnd:
                     self.state_mean = 0.9 * self.state_mean + 0.1 * np.mean(next_state)
                     self.state_std = 0.9 * self.state_std + 0.1 * np.std(next_state)
 
@@ -215,7 +219,7 @@ class DQNAgent:
             self.durations_history.append(time() - t0)
             self.dones_history.append(done)
             
-    def save_agent(self,path, rnd = False, reward_function = "-1"):
+    def save_agent(self,path):
         current_directory = os.getcwd()
         path = current_directory + "/agents_saved/" + path + "/"
         if os.path.exists(path) == False:
@@ -226,19 +230,21 @@ class DQNAgent:
         np.save(path + "rewards.npy", self.rewards_history)
         np.save(path + "durations.npy", self.durations_history)
         np.save(path + "dones.npy", self.dones_history)
-        if rnd | (reward_function != "-1"):
+        np.save(path + "loss.npy", self.loss_history)
+        if self.rnd | (self.reward_function != "-1"):
             np.save(path + "original_rewards.npy", self.original_rewards_history)
             np.save(path + "auxiliary_rewards.npy", self.auxiliary_rewards_history)
         print("Agent saved on path: ", path)
 
-    def load_agent(self,path, rnd = False, reward_function = "-1"):
+    def load_agent(self,path):
         current_directory = os.getcwd()
         path = current_directory + "/agents_saved/" + path + "/"
         self.Q.load_state_dict(torch.load(path + "Q_values.pt"))
         self.rewards_history = np.load(path + "rewards.npy").tolist()
         self.durations_history = np.load(path + "durations.npy").tolist()
         self.dones_history = np.load(path + "dones.npy").tolist()
-        if rnd | (reward_function != "-1"):
+        self.loss_history = np.load(path + "loss.npy").tolist()
+        if self.rnd | (self.reward_function != "-1"):
             self.original_rewards_history = np.load(path + "original_rewards.npy").tolist()
             self.auxiliary_rewards_history = np.load(path + "auxiliary_rewards.npy").tolist()
         print("Agent loaded from path: ", path)
@@ -311,18 +317,15 @@ class DQNAgent:
         axs[1, 1].set_ylabel('Loss')
         axs[1, 1].set_xlabel('Episode')
 
-
-
         plt.subplots_adjust(hspace=0.4, wspace=0.3)
         plt.show()
 
-    def reward_plot(self, reward_function = "-1", target_update_frequency = 100, rnd = False):
-        
+    def reward_plot(self, target_update_frequency = 100):
         y = np.linspace(0, len(self.rewards_history), len(self.rewards_history))
         font_size = 15
 
         fig, axs = plt.subplots(2, 5, figsize=(25, 10))
-        if rnd == False:
+        if self.rnd == False:
             fig.suptitle(f'Training Results for DQN with auxiliary reward function', fontsize=font_size + 5)
         else:
             fig.suptitle(f'Training Results for DQN with RND intrinsic reward function', fontsize=font_size + 5)
@@ -386,7 +389,7 @@ class DQNAgent:
         plt.subplots_adjust(hspace=0.4, wspace=0.3)
         plt.show()
 
-        if reward_function == "-1":
+        if self.reward_function == "-1":
             plt.savefig(f'plots/DQN/Reward_updatesevery{target_update_frequency}.png')
         else:
             plt.savefig(f'plots/DQN/AUXreward_updatesevery{target_update_frequency}.png')
