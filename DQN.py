@@ -361,7 +361,7 @@ class DQNAgent:
 
         fig, axs = plt.subplots(2, 5, figsize=(25, 10))
         if self.rnd == False:
-            fig.suptitle(f'Training Results for DQN with auxiliary reward function', fontsize=font_size + 5)
+            fig.suptitle(f'Training Results for DQN with heuristic reward function', fontsize=font_size + 5)
         else:
             fig.suptitle(f'Training Results for DQN with RND intrinsic reward function', fontsize=font_size + 5)
         rewards_smoothed = pd.Series(self.rewards_history).rolling(window=20, min_periods=1).mean()
@@ -391,14 +391,14 @@ class DQNAgent:
         axs[1, 1].set_xlabel('Episode', fontsize=font_size)
 
         auxiliary_rewards_smoothed = pd.Series(self.auxiliary_rewards_history).rolling(window=20, min_periods=1).mean()
-        text_aux = 'Auxiliary Reward' if self.rnd == False else 'Intrinsic Reward'
+        text_aux = 'Heuristic Reward' if self.rnd == False else 'Intrinsic Reward'
         axs[0, 2].plot(auxiliary_rewards_smoothed, color='purple', linewidth=0.5)
         axs[0, 2].set_title(text_aux, fontsize=font_size+2)
         axs[0, 2].set_ylabel(text_aux, fontsize=font_size)
         axs[0, 2].set_xlabel('Episode', fontsize=font_size)
 
         axs[1, 2].plot(np.cumsum(self.auxiliary_rewards_history), color='purple', linewidth=0.5)
-        text_aux = 'Cumulative Auxiliary Reward' if self.rnd == False else 'Cumulative Intrinsic Reward'
+        text_aux = 'Cumulative Heuristic Reward' if self.rnd == False else 'Cumulative Intrinsic Reward'
         axs[1, 2].set_title(text_aux, fontsize=font_size+2)
         axs[1, 2].set_ylabel(text_aux, fontsize=font_size)
         axs[1, 2].ticklabel_format(axis='y', style='sci', scilimits=(0,0))
