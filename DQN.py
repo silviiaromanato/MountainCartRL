@@ -5,10 +5,8 @@ from collections import deque
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.nn.utils import clip_grad_norm_
 import os
 from tqdm import tqdm
-import gymnasium as gym
 from time import time
 from matplotlib import pyplot as plt
 
@@ -100,8 +98,7 @@ class DQNAgent:
         # Replay buffer
         self.replay_buffer = deque(maxlen=replay_buffer_max)
 
-
-    def observe(self, state, action, next_state, reward, done):
+    def observe(self, state, action, next_state, reward, done, train=True):
         if self.rnd == True:
             self.original_rewards_step += reward
             intrinsic_reward = self.update_rnd(state)
@@ -110,7 +107,8 @@ class DQNAgent:
 
         self.replay_buffer.append((state, action, reward, next_state, done))
         self.step_count += 1
-        self.update()
+        if train:
+            self.update()
 
     def select_action(self, state):
         if np.random.rand() <= self.epsilon:
@@ -177,7 +175,7 @@ class DQNAgent:
         else:
             return 0
 
-    def train(self, env, agent, num_episodes, seed_list = None, min_epsilon = 0.05, max_epsilon = 0.9):
+    def train(self, env, agent, num_episodes, seed_list = None):
 
         for ep in tqdm(range(num_episodes)):
             t0 = time()
@@ -185,7 +183,7 @@ class DQNAgent:
                 seed = np.random.randint(0, 100000)
                 state = env.reset(seed=seed)[0]
             else:
-                state = env.reset(seed=seed[ep])[0]
+                state = env.reset(seed=seed_list[ep])[0]
             done, truncated = False, False
             ep_reward= 0
             self.original_rewards_step = 0
@@ -195,14 +193,14 @@ class DQNAgent:
                 action = agent.select_action(state)
                 
                 if self.reward_function != "-1":
-                    next_state, reward, done, truncated, _ = env.step(action, reward_function = self.reward_function)
+                    next_state, reward, done, truncated, _ = env.step(action)
                     original_reward, auxiliary_reward, _ = env.get_decomposed_rewards()
                     self.auxiliary_rewards_step += auxiliary_reward
                     self.original_rewards_step += original_reward
                 else:
                     next_state, reward, done, truncated, _ = env.step(action)
                 
-                agent.observe(state, action, next_state, reward, done, rnd = self.rnd)
+                agent.observe(state, action, next_state, reward, done, train = True)
 
                 ep_reward += reward
 
@@ -213,6 +211,43 @@ class DQNAgent:
                 state = next_state
 
             #print(f"Episode {ep + 1} - Reward: {ep_reward} - original reward: {self.original_rewards_step} - auxiliary reward: {self.auxiliary_rewards_step} - Truncated: {truncated}")
+            self.original_rewards_history.append(self.original_rewards_step)
+            self.auxiliary_rewards_history.append(self.auxiliary_rewards_step)
+            self.rewards_history.append(ep_reward)
+            self.durations_history.append(time() - t0)
+            self.dones_history.append(done)
+
+    def test(self, env, agent, num_episodes, seed_list = None):
+        self.epsilon = 0
+        for ep in tqdm(range(num_episodes)):
+            t0 = time()
+            state = env.reset(seed=seed_list[ep])[0]
+            done, truncated = False, False
+            ep_reward= 0
+            self.original_rewards_step = 0
+            self.auxiliary_rewards_step = 0
+
+            while not (done | truncated):
+                action = agent.select_action(state)
+                
+                if self.reward_function != "-1":
+                    next_state, reward, done, truncated, _ = env.step(action)
+                    original_reward, auxiliary_reward, _ = env.get_decomposed_rewards()
+                    self.auxiliary_rewards_step += auxiliary_reward
+                    self.original_rewards_step += original_reward
+                else:
+                    next_state, reward, done, truncated, _ = env.step(action)
+                
+                agent.observe(state, action, next_state, reward, done, train = False)   
+
+                ep_reward += reward
+
+                if self.rnd:
+                    self.state_mean = 0.9 * self.state_mean + 0.1 * np.mean(next_state)
+                    self.state_std = 0.9 * self.state_std + 0.1 * np.std(next_state)
+
+                state = next_state
+
             self.original_rewards_history.append(self.original_rewards_step)
             self.auxiliary_rewards_history.append(self.auxiliary_rewards_step)
             self.rewards_history.append(ep_reward)
@@ -289,7 +324,7 @@ class DQNAgent:
         plt.subplots_adjust(hspace=0.4, wspace=0.3)
         plt.show()
 
-    def dones_plots(self, reward_function = "-1", target_update_frequency = 100):
+    def dones_plots(self, target_update_frequency = 100):
 
         y = np.linspace(0, len(self.rewards_history), len(self.rewards_history))
 
@@ -339,6 +374,7 @@ class DQNAgent:
         axs[1, 0].plot(np.cumsum(self.rewards_history), color='purple', linewidth=0.5)
         axs[1, 0].set_title('Cumulative Total Reward', fontsize=font_size)
         axs[1, 0].set_ylabel('Cumulative Total Reward', fontsize=font_size)
+        axs[1, 0].ticklabel_format(axis='y', style='sci', scilimits=(0,0))
         axs[1, 0].set_xlabel('Episode', fontsize=font_size)
 
         original_rewards_smoothed = pd.Series(self.original_rewards_history).rolling(window=20, min_periods=1).mean()
@@ -351,18 +387,21 @@ class DQNAgent:
         axs[1, 1].plot(np.cumsum(self.original_rewards_history), color='purple', linewidth=0.5)
         axs[1, 1].set_title('Cumulative Original Reward', fontsize=font_size+2)
         axs[1, 1].set_ylabel('Cumulative Original Reward', fontsize=font_size)
+        axs[1, 1].ticklabel_format(axis='y', style='sci', scilimits=(0,0))
         axs[1, 1].set_xlabel('Episode', fontsize=font_size)
 
         auxiliary_rewards_smoothed = pd.Series(self.auxiliary_rewards_history).rolling(window=20, min_periods=1).mean()
-
+        text_aux = 'Auxiliary Reward' if self.rnd == False else 'Intrinsic Reward'
         axs[0, 2].plot(auxiliary_rewards_smoothed, color='purple', linewidth=0.5)
-        axs[0, 2].set_title('Auxiliary Reward', fontsize=font_size+2)
-        axs[0, 2].set_ylabel('Auxiliary Rewards', fontsize=font_size)
+        axs[0, 2].set_title(text_aux, fontsize=font_size+2)
+        axs[0, 2].set_ylabel(text_aux, fontsize=font_size)
         axs[0, 2].set_xlabel('Episode', fontsize=font_size)
 
         axs[1, 2].plot(np.cumsum(self.auxiliary_rewards_history), color='purple', linewidth=0.5)
-        axs[1, 2].set_title('Cumulative Auxiliary Reward', fontsize=font_size+2)
-        axs[1, 2].set_ylabel('Cumulative Auxiliary Reward', fontsize=font_size)
+        text_aux = 'Cumulative Auxiliary Reward' if self.rnd == False else 'Cumulative Intrinsic Reward'
+        axs[1, 2].set_title(text_aux, fontsize=font_size+2)
+        axs[1, 2].set_ylabel(text_aux, fontsize=font_size)
+        axs[1, 2].ticklabel_format(axis='y', style='sci', scilimits=(0,0))
         axs[1, 2].set_xlabel('Episode', fontsize=font_size)
 
         axs[0, 3].scatter(y, self.dones_history, s = 3, color='green')
@@ -371,7 +410,7 @@ class DQNAgent:
         axs[0, 3].set_xlabel('Episode', fontsize=font_size)
 
         axs[1, 3].plot(np.cumsum(self.dones_history), color='green', linewidth=2)
-        axs[1, 3].set_title('Cumulative Successes up to episode n', fontsize=font_size +2)
+        axs[1, 3].set_title('Cumulative Successes', fontsize=font_size +2)
         axs[1, 3].set_ylabel('Cumulative Successes', fontsize=font_size)
         axs[1, 3].set_xlabel('Episode', fontsize=font_size)
 
@@ -383,6 +422,7 @@ class DQNAgent:
         axs[1, 4].plot(self.loss_history)
         axs[1, 4].set_title('Loss', fontsize=font_size +2)
         axs[1, 4].set_ylabel('Loss' , fontsize=font_size)
+        axs[1, 4].ticklabel_format(axis='y', style='sci', scilimits=(0,0))
         axs[1, 4].set_xlabel('Time stamps'  , fontsize=font_size)
         axs[1, 4].tick_params(axis='x', labelsize=5)
 
