@@ -1,6 +1,6 @@
 # MountainCartRL
 ## Authors
-Silvia Romano
+Silvia Romanato
 Alexi Semiz
 
 ## Introduction
@@ -11,4 +11,4 @@ The agent in this environment has three possible actions: accelerate to the left
 To address these challenges, this project implements and compares two RL algorithms: a model-free algorithm known as Deep Q-Network (DQN) and a model-based algorithm called Dyna. The DQN algorithm learns directly from interactions with the environment, updating its policy based on the rewards received. In contrast, the Dyna algorithm combines direct learning from interactions with simulated learning from a model of the environment, potentially improving efficiency and performance.
 
 ## Code
-The DQN agents lcass are coded in the DQN.py file while the DYNA agent class is in DYNA.py. The main notebook is MountainCart_notebook.ipynb. All the agents training, plots, results are there.
+The DQN agents lcass are coded in the DQN.py file while the DYNA agent class is in DYNA.py. The main notebook is MountainCar_notebook.ipynb. All the agents training, plots, results are there.
