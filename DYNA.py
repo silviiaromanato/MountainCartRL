@@ -349,25 +349,25 @@ def plot_all_on_same_figure(agent):
     fig, ax = plt.subplots(2, 2, figsize=(15, 15))
     #plot_episodes_duration(agent)
     ax[0,0].scatter(range(len(agent.episodes_duration)),agent.episodes_duration,s=1,alpha=0.5)
-    ax[0,0].set_title("Duration of each episode")
-    ax[0,0].set_xlabel("Episode number")
-    ax[0,0].set_ylabel("Duration (s)")
+    ax[0,0].set_title("Duration of each episode", fontsize=25)
+    ax[0,0].set_xlabel("Episode number", fontsize=20)
+    ax[0,0].set_ylabel("Duration (s)", fontsize=20)
     
     #plot_accumulated_reward(agent)
     cum_reward_per_ep=np.array(agent.cumulative_reward_per_episode)
     window=50
     moving_average = np.convolve(cum_reward_per_ep, np.ones(window), 'valid') / window
     ax[0,1].plot(moving_average)
-    ax[0,1].set_xlabel("Episode")
-    ax[0,1].set_ylabel("Accumulated reward")
-    ax[0,1].set_title("Accumulated reward per episode")
+    ax[0,1].set_xlabel("Episode", fontsize=20)
+    ax[0,1].set_ylabel("Accumulated reward", fontsize=20)
+    ax[0,1].set_title("Accumulated reward per episode", fontsize=25)
     
     #plot_cumulatiuve_number_of_sucesses(agent)
     cum_success=np.cumsum(agent.episodes_success)
     ax[1,0].plot(cum_success)
-    ax[1,0].set_xlabel("Episode")
-    ax[1,0].set_ylabel("Cumulative number of successes")
-    ax[1,0].set_title("Cumulative number of successes over episodes")
+    ax[1,0].set_xlabel("Episode", fontsize=20)
+    ax[1,0].set_ylabel("Cumulative number of successes", fontsize=20)
+    ax[1,0].set_title("Cumulative number successes per ep", fontsize=25)
     
     #show_q_updates(agent)
     y_vals=agent.q_value_updates[::]
@@ -375,9 +375,9 @@ def plot_all_on_same_figure(agent):
     ax[1,1].scatter(x_vals,y_vals,s=3,alpha=0.2)
     ax[1,1].hlines(1,1,len(y_vals),linestyles='dashed',colors='r')
     #ax[1,1].set_yscale("log")
-    ax[1,1].set_xlabel("Step number")
-    ax[1,1].set_ylabel("Q value update")
-    ax[1,1].set_title("Q value updates")
+    ax[1,1].set_xlabel("Step number", fontsize=20)
+    ax[1,1].set_ylabel("Q value update", fontsize=20)
+    ax[1,1].set_title("Q value updates", fontsize=25)
     plt.show()
     
     #show_max_Q(agent)

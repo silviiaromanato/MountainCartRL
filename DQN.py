@@ -42,7 +42,7 @@ class DQNAgent:
                  gamma = 0.99, min_epsilon = 0.05, max_epsilon = 0.9, 
                  decay_epsilon = 0.995, replay_buffer_max = 10000, batch_size = 64, 
                  learning_rate=0.001, hidden_layer_sizes = [64, 64],
-                 target_update_frequency = 500, reward_factor = 0.1,
+                 target_update_frequency = 1000, reward_factor = 0.1,
                  rnd = False, reward_function = "-1"):
         
         self.rnd = rnd
