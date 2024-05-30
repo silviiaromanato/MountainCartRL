@@ -12,3 +12,6 @@ To address these challenges, this project implements and compares two RL algorit
 
 ## Code
 The DQN agents lcass are coded in the DQN.py file while the DYNA agent class is in DYNA.py. The main notebook is MountainCar_notebook.ipynb. All the agents training, plots, results are there.
+
+## Report
+The report with the comments is found in RL_Project_Mountain_Car.pdf
