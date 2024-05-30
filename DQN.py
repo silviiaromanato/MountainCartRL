@@ -9,6 +9,7 @@ import os
 from tqdm import tqdm
 from time import time
 from matplotlib import pyplot as plt
+from torch.nn.utils import clip_grad_norm_
 
 class DQNnetwork(nn.Module):
     def __init__(self, state_size, action_size, hidden_layer_sizes):
@@ -50,6 +51,7 @@ class DQNAgent:
         self.env= env
         self.state_size = state_size
         self.action_size = action_size
+        self.clip_norm = 1
 
         # Q-Network (target and policy network)
         self.Q = DQNnetwork(state_size, action_size, hidden_layer_sizes)
@@ -140,7 +142,7 @@ class DQNAgent:
         self.optimizer.zero_grad()
         loss.backward()
 
-        #clip_grad_norm_(self.Q.parameters(), self.clip_norm) # Gradient clipping
+        clip_grad_norm_(self.Q.parameters(), self.clip_norm) # Gradient clipping
         self.optimizer.step() # Update Q network
 
         self.update_count += 1
@@ -428,10 +430,5 @@ class DQNAgent:
 
         plt.subplots_adjust(hspace=0.4, wspace=0.3)
         plt.show()
-
-        if self.reward_function == "-1":
-            plt.savefig(f'plots/DQN/Reward_updatesevery{target_update_frequency}.png')
-        else:
-            plt.savefig(f'plots/DQN/AUXreward_updatesevery{target_update_frequency}.png')
 
 
